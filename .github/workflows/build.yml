@@ -1,111 +1,56 @@
-name: Build ZenoAI APK
+name: Build Android APK
 
 on:
   push:
-    branches: [main, master]
-    tags: ["v*"]
+    branches: [ "main", "master" ]
   pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout du dépôt
+      uses: actions/checkout@v3
 
-      - name: Extraire le zip et trouver le projet
-        id: proj
-        run: |
-          # Choisit le zip qui contient un projet Gradle (le plus récent), sinon cherche dans le dépôt
-          best=$(python3 - <<'PY'
-          import glob, subprocess, zipfile
-          best = None
-          for z in glob.glob('**/*.zip', recursive=True):
-              try:
-                  zf = zipfile.ZipFile(z)
-              except Exception:
-                  continue
-              if not any(n.endswith('settings.gradle.kts') for n in zf.namelist()):
-                  continue
-              newest = max((i.date_time for i in zf.infolist()), default=(0,))
-              try:
-                  t = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct', '--', z]).strip() or 0)
-              except Exception:
-                  t = 0
-              key = (t, newest)
-              if best is None or key > best[0]:
-                  best = (key, z)
-          print(best[1] if best else '')
-          PY
-          )
-          if [ -n "$best" ]; then
-            echo "Zip utilisé : $best"
-            rm -rf _src && mkdir _src
-            unzip -q "$best" -d _src
-            search=_src
+    - name: Extraire l'archive ZIP du projet ZenoAI
+      run: |
+        if [ -f "ZenoAI-v2.zip" ]; then
+          echo "Extraction de ZenoAI-v2.zip..."
+          unzip -o ZenoAI-v2.zip -d extracted_project
+          # Si le ZIP contient un sous-dossier ZenoAI, on déplace tout à la racine du workspace
+          if [ -d "extracted_project/ZenoAI" ]; then
+            cp -r extracted_project/ZenoAI/* .
           else
-            echo "Aucun zip de projet trouvé, recherche dans le dépôt"
-            search=.
+            cp -r extracted_project/* .
           fi
-          f=$(find "$search" -name settings.gradle.kts -not -path '*/build/*' | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
-          if [ -z "$f" ]; then
-            echo "Aucun settings.gradle.kts trouvé. Contenu du dépôt :"
-            find . -not -path './.git/*' | head -50
-            exit 1
-          fi
-          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
-          echo "Projet : $(dirname "$f")"
+          rm -rf extracted_project
+        else
+          echo "Fichier ZenoAI-v2.zip introuvable à la racine, poursuite avec la structure existante."
+        fi
 
-      - name: Installer Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+    - name: Configurer JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
 
-      - name: Installer Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
+    - name: Générer le wrapper Gradle (si absent) et accorder les permissions
+      run: |
+        if [ ! -f "gradlew" ]; then
+          gradle wrapper
+        fi
+        chmod +x gradlew
 
-      - name: Compiler l'APK debug
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          set -o pipefail
-          gradle assembleDebug --no-daemon --console=plain 2>&1 | tee build.log
+    - name: Compiler l'APK Debug avec Gradle
+      run: ./gradlew assembleDebug --no-daemon
 
-      - name: Afficher les erreurs de compilation
-        if: failure()
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          {
-            echo "## Erreurs de compilation"
-            echo '```'
-            grep -E '^e: ' build.log | head -30 || true
-            grep -A8 'What went wrong' build.log | head -20 || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^e: ' build.log | head -30 || true
-
-      - name: Compiler l'APK release (signé avec la clé debug, installable)
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: gradle assembleRelease --no-daemon --stacktrace
-
-      - name: Publier les APK (artefacts)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ZenoAI-apk
-          path: |
-            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/debug/*.apk
-            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
-
-      - name: Créer une release GitHub (sur tag vX.Y)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
+    - name: Téléverser l'APK compilé en artefact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ZenoAI-v2-debug-apk
+        path: app/build/outputs/apk/debug/app-debug.apk
+        
