@@ -1,104 +1,111 @@
-name: Build APK
+name: Build ZenoAI APK
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [main, master]
+    tags: ["v*"]
   pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Extract ZIP (if present)
-      run: |
-        ZIP=$(find . -maxdepth 3 -type f -iname "ZenoAI*.zip" -not -path "./.git/*" | head -n 1)
-        if [ -n "$ZIP" ]; then
-          echo "Extracting $ZIP"
-          mkdir -p extracted
-          unzip -o -q "$ZIP" -d extracted
-        else
-          echo "No ZIP found, using repository files as is"
-        fi
+      - name: Extraire le zip et trouver le projet
+        id: proj
+        run: |
+          # Choisit le zip qui contient un projet Gradle (le plus récent), sinon cherche dans le dépôt
+          best=$(python3 - <<'PY'
+          import glob, subprocess, zipfile
+          best = None
+          for z in glob.glob('**/*.zip', recursive=True):
+              try:
+                  zf = zipfile.ZipFile(z)
+              except Exception:
+                  continue
+              if not any(n.endswith('settings.gradle.kts') for n in zf.namelist()):
+                  continue
+              newest = max((i.date_time for i in zf.infolist()), default=(0,))
+              try:
+                  t = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct', '--', z]).strip() or 0)
+              except Exception:
+                  t = 0
+              key = (t, newest)
+              if best is None or key > best[0]:
+                  best = (key, z)
+          print(best[1] if best else '')
+          PY
+          )
+          if [ -n "$best" ]; then
+            echo "Zip utilisé : $best"
+            rm -rf _src && mkdir _src
+            unzip -q "$best" -d _src
+            search=_src
+          else
+            echo "Aucun zip de projet trouvé, recherche dans le dépôt"
+            search=.
+          fi
+          f=$(find "$search" -name settings.gradle.kts -not -path '*/build/*' | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
+          if [ -z "$f" ]; then
+            echo "Aucun settings.gradle.kts trouvé. Contenu du dépôt :"
+            find . -not -path './.git/*' | head -50
+            exit 1
+          fi
+          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
+          echo "Projet : $(dirname "$f")"
 
-    - name: Locate Android project
-      run: |
-        SETTINGS=$(find . -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
-          -not -path "./.git/*" -not -path "*/build/*" | head -n 1)
-        if [ -z "$SETTINGS" ]; then
-          echo "::error::No settings.gradle(.kts) found"
-          exit 1
-        fi
-        PROJECT_DIR=$(dirname "$SETTINGS")
-        echo "Project directory: $PROJECT_DIR"
-        echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-    - name: Apply build fixes
-      working-directory: ${{ env.PROJECT_DIR }}
-      run: |
-        # Root build file with plugin versions
-        cat > build.gradle.kts <<'EOF'
-        plugins {
-            id("com.android.application") version "8.2.2" apply false
-            id("org.jetbrains.kotlin.android") version "1.9.22" apply false
-        }
-        EOF
+      - name: Installer Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
 
-        # gradle.properties
-        cat > gradle.properties <<'EOF'
-        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-        android.useAndroidX=true
-        kotlin.code.style=official
-        android.nonTransitiveRClass=true
-        EOF
+      - name: Compiler l'APK debug
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --console=plain 2>&1 | tee build.log
 
-        # Theme
-        mkdir -p app/src/main/res/values app/src/main/res/drawable
-        cat > app/src/main/res/values/themes.xml <<'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <resources>
-            <style name="Theme.ZenoAI" parent="android:Theme.Material.Light.NoActionBar" />
-        </resources>
-        EOF
+      - name: Afficher les erreurs de compilation
+        if: failure()
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          {
+            echo "## Erreurs de compilation"
+            echo '```'
+            grep -E '^e: ' build.log | head -30 || true
+            grep -A8 'What went wrong' build.log | head -20 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^e: ' build.log | head -30 || true
 
-        # Launcher icon
-        cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <vector xmlns:android="http://schemas.android.com/apk/res/android"
-            android:width="108dp" android:height="108dp"
-            android:viewportWidth="108" android:viewportHeight="108">
-            <path android:fillColor="#6C4DFF" android:pathData="M0,0h108v108h-108z" />
-            <path android:fillColor="#FFFFFF" android:pathData="M34,34h40v8L46,66h28v8H34v-8l28,-24H34z" />
-        </vector>
-        EOF
+      - name: Compiler l'APK release (signé avec la clé debug, installable)
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: gradle assembleRelease --no-daemon --stacktrace
 
-        # Manifest fixes (idempotent)
-        MANIFEST=app/src/main/AndroidManifest.xml
-        sed -i 's/\\\${applicationId}/${applicationId}/g' "$MANIFEST"
-        sed -i 's#@mipmap/ic_launcher#@drawable/ic_launcher#g' "$MANIFEST"
+      - name: Publier les APK (artefacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenoAI-apk
+          path: |
+            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
-    - name: Set up Gradle
-      uses: gradle/actions/setup-gradle@v4
-      with:
-        gradle-version: '8.5'
-
-    - name: Build Debug APK
-      working-directory: ${{ env.PROJECT_DIR }}
-      run: gradle assembleDebug --stacktrace
-
-    - name: Upload Debug APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug
-        path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+      - name: Créer une release GitHub (sur tag vX.Y)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
