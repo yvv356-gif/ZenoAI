@@ -17,6 +17,13 @@ jobs:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
+      - name: Trouver le projet Gradle
+        id: proj
+        run: |
+          f=$(find . -name settings.gradle.kts -not -path "*/build/*" | head -1)
+          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
+          echo "Projet trouvé dans : $(dirname "$f")"
+
       - name: Installer Java 17
         uses: actions/setup-java@v4
         with:
@@ -29,12 +36,14 @@ jobs:
           gradle-version: "8.9"
 
       - name: Compiler l'APK debug
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: |
           set -o pipefail
           gradle assembleDebug --no-daemon --console=plain 2>&1 | tee build.log
 
       - name: Afficher les erreurs de compilation
         if: failure()
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: |
           {
             echo "## Erreurs de compilation"
@@ -46,6 +55,7 @@ jobs:
           grep -E '^e: ' build.log | head -30 || true
 
       - name: Compiler l'APK release (signé avec la clé debug, installable)
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Publier les APK (artefacts)
@@ -53,11 +63,11 @@ jobs:
         with:
           name: ZenoAI-apk
           path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
 
       - name: Créer une release GitHub (sur tag vX.Y)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
+          files: ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
