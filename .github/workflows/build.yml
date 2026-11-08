@@ -22,23 +22,24 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Configurer Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Localiser et compiler le projet
+      - name: Installer Gradle globalement
         run: |
-          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
-          if [ -z "$GRADLEW_PATH" ]; then
-            echo "Erreur : Fichier gradlew introuvable dans le depot."
+          sudo apt-get update
+          sudo apt-get install -y gradle
+
+      - name: Compiler directement le projet
+        run: |
+          BUILD_FILE=$(find . -name "build.gradle.kts" -o -name "build.gradle" | head -n 1)
+          if [ -z "$BUILD_FILE" ]; then
+            echo "Erreur : Aucun fichier de configuration Gradle trouve dans le depot."
             exit 1
           fi
           
-          PROJECT_DIR=$(dirname "$GRADLEW_PATH")
+          PROJECT_DIR=$(dirname "$BUILD_FILE")
           echo "Dossier du projet trouve : $PROJECT_DIR"
           cd "$PROJECT_DIR"
           
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          gradle assembleDebug
 
       - name: Sauvegarder l'artefact APK
         uses: actions/upload-artifact@v4
