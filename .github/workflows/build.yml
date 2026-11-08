@@ -17,17 +17,31 @@ jobs:
 
     - name: Extraire l'archive ZIP du projet ZenoAI
       run: |
+        echo "=== Fichiers initiaux dans le workspace ==="
+        ls -la
         if [ -f "ZenoAI-v2.zip" ]; then
           echo "Extraction de ZenoAI-v2.zip..."
-          unzip -o ZenoAI-v2.zip -d extracted_project
-          if [ -d "extracted_project/ZenoAI" ]; then
-            cp -r extracted_project/ZenoAI/* .
+          mkdir -p temp_extracted
+          unzip -o ZenoAI-v2.zip -d temp_extracted
+          
+          echo "=== Contenu extrait ==="
+          ls -la temp_extracted
+          
+          # Si le ZIP contient un dossier ZenoAI, on en extrait le contenu à la racine
+          if [ -d "temp_extracted/ZenoAI" ]; then
+            echo "Copie des fichiers depuis le dossier ZenoAI..."
+            cp -av temp_extracted/ZenoAI/. .
           else
-            cp -r extracted_project/* .
+            echo "Copie directe des fichiers..."
+            cp -av temp_extracted/. .
           fi
-          rm -rf extracted_project
+          
+          rm -rf temp_extracted
+          echo "=== Fichiers après extraction à la racine ==="
+          ls -la
         else
-          echo "Fichier ZenoAI-v2.zip introuvable à la racine, poursuite avec la structure existante."
+          echo "Erreur : ZenoAI-v2.zip est introuvable à la racine du dépôt !"
+          exit 1
         fi
 
     - name: Configurer JDK 17
@@ -39,9 +53,6 @@ jobs:
 
     - name: Accorder les permissions d'exécution à gradlew
       run: |
-        if [ ! -f "gradlew" ]; then
-          gradle wrapper
-        fi
         chmod +x gradlew
 
     - name: Compiler l'APK Debug
