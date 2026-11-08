@@ -1,0 +1,49 @@
+name: Build ZenoAI APK
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Installer Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Compiler l'APK debug
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Compiler l'APK release (signé avec la clé debug, installable)
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Publier les APK (artefacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenoAI-apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+
+      - name: Créer une release GitHub (sur tag vX.Y)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/*.apk
