@@ -13,14 +13,13 @@ jobs:
 
     steps:
     - name: Checkout du dépôt
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Extraire l'archive ZIP du projet ZenoAI
       run: |
         if [ -f "ZenoAI-v2.zip" ]; then
           echo "Extraction de ZenoAI-v2.zip..."
           unzip -o ZenoAI-v2.zip -d extracted_project
-          # Si le ZIP contient un sous-dossier ZenoAI, on déplace tout à la racine du workspace
           if [ -d "extracted_project/ZenoAI" ]; then
             cp -r extracted_project/ZenoAI/* .
           else
@@ -32,24 +31,24 @@ jobs:
         fi
 
     - name: Configurer JDK 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: gradle
 
-    - name: Générer le wrapper Gradle (si absent) et accorder les permissions
+    - name: Accorder les permissions d'exécution à gradlew
       run: |
         if [ ! -f "gradlew" ]; then
           gradle wrapper
         fi
         chmod +x gradlew
 
-    - name: Compiler l'APK Debug avec Gradle
+    - name: Compiler l'APK Debug
       run: ./gradlew assembleDebug --no-daemon
 
-    - name: Téléverser l'APK compilé en artefact
-      uses: actions/upload-artifact@v3
+    - name: Téléverser l'APK en artefact
+      uses: actions/upload-artifact@v4
       with:
         name: ZenoAI-v2-debug-apk
         path: app/build/outputs/apk/debug/app-debug.apk
