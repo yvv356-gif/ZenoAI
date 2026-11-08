@@ -27,15 +27,13 @@ jobs:
 
       - name: Donner les permissions d execution a Gradlew
         run: chmod +x gradlew
-        working-directory: ./ZenoAI
 
       - name: Compiler l'APK Debug
         run: ./gradlew assembleDebug
-        working-directory: ./ZenoAI
 
       - name: Sauvegarder l'artefact APK
         uses: actions/upload-artifact@v4
         with:
           name: zeno-debug-apk
-          path: ZenoAI/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           
