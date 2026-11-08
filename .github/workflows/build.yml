@@ -27,27 +27,35 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Compiler le projet Android
+      - name: Extraire l'archive ZIP et compiler
         run: |
-          echo "Affichage de l'arborescence pour localiser les fichiers :"
-          find . -maxdepth 3
-
-          SETTINGS_FILE=$(find . -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)
+          echo "Recherche du fichier ZIP dans le depot..."
+          ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
           
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "Erreur : Fichier de configuration introuvable dans le depot."
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Erreur : Aucun fichier ZIP trouve dans le depot."
             exit 1
           fi
-
+          
+          echo "Archive trouvee : $ZIP_FILE. Extraction en cours..."
+          unzip -q "$ZIP_FILE" -d extracted_project
+          
+          SETTINGS_FILE=$(find extracted_project -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)
+          
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "Erreur : Fichier de configuration introuvable dans l'archive."
+            exit 1
+          fi
+          
           PROJECT_DIR=$(dirname "$SETTINGS_FILE")
-          echo "Dossier du projet identifie : $PROJECT_DIR"
+          echo "Dossier du projet extrait : $PROJECT_DIR"
           cd "$PROJECT_DIR"
-
+          
           if [ ! -f "gradlew" ]; then
             echo "Generation du wrapper Gradle..."
             gradle wrapper --gradle-version 8.9
           fi
-
+          
           chmod +x gradlew
           ./gradlew assembleDebug
 
