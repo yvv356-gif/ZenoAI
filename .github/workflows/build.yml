@@ -29,21 +29,25 @@ jobs:
 
       - name: Compiler le projet Android
         run: |
-          SETTINGS_FILE=$(find . -name "settings.gradle*" -not -path '*/.*' | head -n 1)
+          echo "Affichage de l'arborescence pour localiser les fichiers :"
+          find . -maxdepth 3
+
+          SETTINGS_FILE=$(find . -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)
+          
           if [ -z "$SETTINGS_FILE" ]; then
-            echo "Erreur : Fichier settings.gradle introuvable dans le depot."
+            echo "Erreur : Fichier de configuration introuvable dans le depot."
             exit 1
           fi
-          
+
           PROJECT_DIR=$(dirname "$SETTINGS_FILE")
-          echo "Dossier du projet trouve : $PROJECT_DIR"
+          echo "Dossier du projet identifie : $PROJECT_DIR"
           cd "$PROJECT_DIR"
-          
+
           if [ ! -f "gradlew" ]; then
             echo "Generation du wrapper Gradle..."
             gradle wrapper --gradle-version 8.9
           fi
-          
+
           chmod +x gradlew
           ./gradlew assembleDebug
 
