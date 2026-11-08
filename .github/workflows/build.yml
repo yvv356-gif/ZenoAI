@@ -15,25 +15,27 @@ jobs:
     - name: Checkout du dépôt
       uses: actions/checkout@v4
 
-    - name: Extraire l'archive ZIP et structurer à la racine
+    - name: Extraire et placer tous les fichiers à la racine
       run: |
-        echo "--- Dossier avant extraction ---"
+        echo "--- Fichiers avant extraction ---"
         ls -la
-        if [ -f "ZenoAI-v2.zip" ]; then
-          mkdir -p temp_extracted
-          unzip -o ZenoAI-v2.zip -d temp_extracted
-          
-          # Si le zip contient un dossier ZenoAI, on extrait son contenu à la racine
-          if [ -d "temp_extracted/ZenoAI" ]; then
-            cp -a temp_extracted/ZenoAI/. .
-          else
-            cp -a temp_extracted/. .
-          fi
-          rm -rf temp_extracted
-          # On supprime le dossier ZenoAI s'il a été recréé par erreur
-          rm -rf ZenoAI
+        
+        # Extraire dans un dossier temporaire
+        mkdir -p temp_extracted
+        unzip -o ZenoAI-v2.zip -d temp_extracted
+        
+        # Remonter tout le contenu du projet directement à la racine exacte
+        if [ -d "temp_extracted/ZenoAI" ]; then
+          cp -av temp_extracted/ZenoAI/. .
+        else
+          cp -av temp_extracted/. .
         fi
-        echo "--- Dossier après extraction ---"
+        
+        # Nettoyer
+        rm -rf temp_extracted
+        rm -rf ZenoAI
+        
+        echo "--- Fichiers prêts à la racine ---"
         ls -la
 
     - name: Configurer JDK 17
