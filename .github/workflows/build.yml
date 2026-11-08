@@ -24,15 +24,9 @@ jobs:
           mkdir -p temp_extracted
           unzip -o ZenoAI-v2.zip -d temp_extracted
           
-          echo "=== Contenu extrait ==="
-          ls -la temp_extracted
-          
-          # Si le ZIP contient un dossier ZenoAI, on en extrait le contenu à la racine
           if [ -d "temp_extracted/ZenoAI" ]; then
-            echo "Copie des fichiers depuis le dossier ZenoAI..."
             cp -av temp_extracted/ZenoAI/. .
           else
-            echo "Copie directe des fichiers..."
             cp -av temp_extracted/. .
           fi
           
@@ -51,8 +45,10 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    - name: Accorder les permissions d'exécution à gradlew
+    - name: Installer Gradle et générer le Wrapper Gradle
       run: |
+        sudo apt-get update && sudo apt-get install -y gradle
+        gradle wrapper
         chmod +x gradlew
 
     - name: Compiler l'APK Debug
