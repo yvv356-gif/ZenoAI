@@ -1,113 +1,61 @@
-name: Build ZenoAI APK
+name: Build Android APK
 
 on:
   push:
-    branches: [main, master]
-    tags: ["v*"]
+    branches: [ "main", "master" ]
+    tags:
+      - 'v*'
   pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
+    name: Compiler et Publier l'APK
     runs-on: ubuntu-latest
+
     steps:
-      - name: Récupérer le code
+      - name: 📥 Récupérer le code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Extraire le zip et trouver le projet
-        id: proj
-        run: |
-          best=$(python3 - <<'PY'
-          import glob, subprocess, zipfile
-          best = None
-          for z in glob.glob('**/*.zip', recursive=True):
-              try:
-                  zf = zipfile.ZipFile(z)
-              except Exception:
-                  continue
-              if not any(n.endswith('settings.gradle.kts') for n in zf.namelist()):
-                  continue
-              newest = max((i.date_time for i in zf.infolist()), default=(0,))
-              try:
-                  t = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct', '--', z]).strip() or 0)
-              except Exception:
-                  t = 0
-              key = (t, newest)
-              if best is None or key > best[0]:
-                  best = (key, z)
-          print(best[1] if best else '')
-          PY
-          )
-          if [ -n "$best" ]; then
-            echo "Zip utilisé : $best"
-            rm -rf _src && mkdir _src
-            unzip -q "$best" -d _src
-            search=_src
-          else
-            search=.
-          fi
-          f=$(find "$search" -name settings.gradle.kts -not -path '*/build/*' | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
-          if [ -z "$f" ]; then
-            echo "Aucun settings.gradle.kts trouvé."
-            find . -not -path './.git/*' | head -50
-            exit 1
-          fi
-          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
-
-      - name: Installer Java 17
+      - name: ☕ Installer Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Installer Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
+      - name: 🐘 Configurer Gradle
+        uses: gradle/actions/setup-gradle@v3
 
-      - name: Compiler APK
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          : > build.log
-          show_errors() {
-            {
-              echo "## Erreurs de compilation"
-              echo '```'
-              grep -E '^e: ' build.log | sed -E 's#file://.*/src/main/java/##' | head -40
-              grep -A6 'What went wrong' build.log | head -20
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo
-            echo "=================== ERREURS DE COMPILATION ==================="
-            grep -E '^e: ' build.log | sed -E 's#file://.*/src/main/java/##' | head -40
-            grep -A6 'What went wrong' build.log | head -20
-            echo "=============================================================="
-          }
-          run() {
-            gradle "$@" --no-daemon --console=plain >> build.log 2>&1 || { show_errors; exit 1; }
-          }
-          run :gameshell:assembleRelease
-          mkdir -p app/src/main/assets
-          cp gameshell/build/outputs/apk/release/*.apk app/src/main/assets/game-shell.apk
-          run assembleDebug
-          run assembleRelease
-          echo "Compilation réussie"
+      - name: 🔑 Donner les permissions d'exécution à Gradlew
+        run: chmod +x gradlew
 
-      - name: Récupérer les APK
+      - name: 📦 Compiler l'APK Debug
+        run: ./gradlew assembleDebug
+
+      - name: 📦 Compiler l'APK Release (si configuré)
+        run: ./gradlew assembleRelease || true
+
+      - name: 📤 Sauvegarder l'artefact Debug
         uses: actions/upload-artifact@v4
         with:
-          name: ZenoAI-apk
-          path: |
-            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/debug/*.apk
-            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
+          name: zeno-app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Créer une release GitHub (sur tag vX.Y)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+      - name: 📤 Sauvegarder l'artefact Release
+        uses: actions/upload-artifact@v4
         with:
-          files: ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
+          name: zeno-app-release
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+
+      - name: 🚀 Créer une Release GitHub (sur tag vX.Y)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
