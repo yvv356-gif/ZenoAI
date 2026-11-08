@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build APK
 
 on:
   push:
@@ -12,58 +12,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout du dépôt
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Extraire et placer tous les fichiers à la racine
-      run: |
-        echo "--- Fichiers avant extraction ---"
-        ls -la
-        
-        # Extraire dans un dossier temporaire
-        mkdir -p temp_extracted
-        unzip -o ZenoAI-v2.zip -d temp_extracted
-        
-        # Remonter tout le contenu du projet directement à la racine exacte
-        if [ -d "temp_extracted/ZenoAI" ]; then
-          cp -av temp_extracted/ZenoAI/. .
-        else
-          cp -av temp_extracted/. .
-        fi
-        
-        # Nettoyer
-        rm -rf temp_extracted
-        rm -rf ZenoAI
-        
-        echo "--- Fichiers prêts à la racine ---"
-        ls -la
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-    - name: Configurer JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-    - name: Forcer Gradle 8.5 et générer le Wrapper
-      run: |
-        mkdir -p gradle/wrapper
-        echo "distributionBase=GRADLE_USER_HOME" > gradle/wrapper/gradle-wrapper.properties
-        echo "distributionPath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
-        echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip" >> gradle/wrapper/gradle-wrapper.properties
-        echo "zipStoreBase=GRADLE_USER_HOME" >> gradle/wrapper/gradle-wrapper.properties
-        echo "zipStorePath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
-        
-        sudo apt-get update && sudo apt-get install -y gradle
-        gradle wrapper --gradle-version 8.5
-        chmod +x gradlew
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
 
-    - name: Compiler l'APK Debug
-      run: ./gradlew assembleDebug --no-daemon
+      - name: Build Debug APK
+        run: gradle assembleDebug --stacktrace
 
-    - name: Téléverser l'APK en artefact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ZenoAI-v2-debug-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
-        
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenoAI-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
