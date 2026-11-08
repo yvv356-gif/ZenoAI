@@ -17,26 +17,11 @@ jobs:
 
     - name: Extraire l'archive ZIP du projet ZenoAI
       run: |
-        echo "=== Fichiers initiaux dans le workspace ==="
+        echo "=== Fichiers initiaux ==="
         ls -la
-        if [ -f "ZenoAI-v2.zip" ]; then
-          echo "Extraction de ZenoAI-v2.zip..."
-          mkdir -p temp_extracted
-          unzip -o ZenoAI-v2.zip -d temp_extracted
-          
-          if [ -d "temp_extracted/ZenoAI" ]; then
-            cp -av temp_extracted/ZenoAI/. .
-          else
-            cp -av temp_extracted/. .
-          fi
-          
-          rm -rf temp_extracted
-          echo "=== Fichiers après extraction à la racine ==="
-          ls -la
-        else
-          echo "Erreur : ZenoAI-v2.zip est introuvable à la racine du dépôt !"
-          exit 1
-        fi
+        unzip -o ZenoAI-v2.zip
+        echo "=== Fichiers après extraction ==="
+        ls -la
 
     - name: Configurer JDK 17
       uses: actions/setup-java@v4
@@ -45,7 +30,8 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    - name: Forcer Gradle 8.5 (Compatible Java 17)
+    - name: Forcer Gradle 8.5 et générer le Wrapper
+      working-directory: ZenoAI
       run: |
         mkdir -p gradle/wrapper
         echo "distributionBase=GRADLE_USER_HOME" > gradle/wrapper/gradle-wrapper.properties
@@ -54,17 +40,17 @@ jobs:
         echo "zipStoreBase=GRADLE_USER_HOME" >> gradle/wrapper/gradle-wrapper.properties
         echo "zipStorePath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
         
-        # Installer Gradle et générer le wrapper en version 8.5
         sudo apt-get update && sudo apt-get install -y gradle
         gradle wrapper --gradle-version 8.5
         chmod +x gradlew
 
     - name: Compiler l'APK Debug
+      working-directory: ZenoAI
       run: ./gradlew assembleDebug --no-daemon
 
     - name: Téléverser l'APK en artefact
       uses: actions/upload-artifact@v4
       with:
         name: ZenoAI-v2-debug-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: ZenoAI/app/build/outputs/apk/debug/app-debug.apk
         
