@@ -11,6 +11,9 @@ jobs:
   build:
     name: Compiler l'APK
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ZenoAI
 
     steps:
       - name: Recuperer le code
@@ -24,6 +27,8 @@ jobs:
 
       - name: Configurer Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
 
       - name: Donner les permissions d execution a Gradlew
         run: chmod +x gradlew
@@ -35,5 +40,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: zeno-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ZenoAI/app/build/outputs/apk/debug/app-debug.apk
           
