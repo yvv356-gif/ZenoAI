@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Extraire et Compiler l'APK
+    name: Compiler l'APK
     runs-on: ubuntu-latest
 
     steps:
@@ -25,30 +25,17 @@ jobs:
       - name: Configurer Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Extraire l'archive et compiler
+      - name: Localiser et compiler le projet
         run: |
-          echo "Recherche d'une archive ZIP dans le depot..."
-          ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
-          
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Archive trouvee : $ZIP_FILE. Extraction en cours..."
-            unzip -q "$ZIP_FILE" -d extracted_project
-          else
-            echo "Aucune archive ZIP trouvee, utilisation du repertoire courant."
-            mkdir -p extracted_project
-            cp -r !(extracted_project) extracted_project/ 2>/dev/null || true
-          fi
-          
-          # Localiser automatiquement le dossier contenant gradlew
-          GRADLEW_PATH=$(find extracted_project -name "gradlew" | head -n 1)
-          if [ -n "$GRADLEW_PATH" ]; then
-            PROJECT_DIR=$(dirname "$GRADLEW_PATH")
-            echo "Dossier du projet localise : $PROJECT_DIR"
-            cd "$PROJECT_DIR"
-          else
-            echo "Erreur : Impossible de trouver le fichier gradlew."
+          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
+          if [ -z "$GRADLEW_PATH" ]; then
+            echo "Erreur : Fichier gradlew introuvable dans le depot."
             exit 1
           fi
+          
+          PROJECT_DIR=$(dirname "$GRADLEW_PATH")
+          echo "Dossier du projet trouve : $PROJECT_DIR"
+          cd "$PROJECT_DIR"
           
           chmod +x gradlew
           ./gradlew assembleDebug
