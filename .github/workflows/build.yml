@@ -14,8 +14,35 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Récupérer le code
+      - name: Récupérer le dépôt
         uses: actions/checkout@v4
+
+      - name: Extraire le zip du projet
+        run: |
+          set -e
+          ZIP=$(find . -maxdepth 3 -iname '*.zip' -not -path './.git/*' | head -n 1)
+          if [ -n "$ZIP" ]; then
+            echo "Zip trouvé : $ZIP"
+            rm -rf "$RUNNER_TEMP/src"
+            mkdir -p "$RUNNER_TEMP/src"
+            unzip -q "$ZIP" -d "$RUNNER_TEMP/src"
+            SETTINGS=$(find "$RUNNER_TEMP/src" -name settings.gradle.kts -not -path '*/__MACOSX/*' | head -n 1)
+            if [ -z "$SETTINGS" ]; then
+              echo "settings.gradle.kts introuvable dans le zip. Contenu :"
+              find "$RUNNER_TEMP/src" | head -n 60
+              exit 1
+            fi
+            PROJECT_DIR=$(dirname "$SETTINGS")
+          elif [ -f settings.gradle.kts ]; then
+            echo "Pas de zip : projet déjà à la racine du dépôt"
+            PROJECT_DIR="$GITHUB_WORKSPACE"
+          else
+            echo "Aucun zip et aucun settings.gradle.kts dans le dépôt. Contenu :"
+            find . -not -path './.git/*' | head -n 60
+            exit 1
+          fi
+          echo "Projet : $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Installer Java 17
         uses: actions/setup-java@v4
@@ -23,27 +50,34 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Installer l'Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Installer Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
       - name: Compiler l'APK debug
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          cd "$PROJECT_DIR"
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Compiler l'APK release (signé avec la clé debug, installable)
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: |
+          cd "$PROJECT_DIR"
+          gradle assembleRelease --no-daemon --stacktrace
 
       - name: Publier les APK (artefacts)
         uses: actions/upload-artifact@v4
         with:
           name: ZenoAI-apk
           path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
 
       - name: Créer une release GitHub (sur tag vX.Y)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
+          files: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
