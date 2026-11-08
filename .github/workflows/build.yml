@@ -22,24 +22,24 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Installer Gradle globalement
+      - name: Installer Gradle
         run: |
           sudo apt-get update
           sudo apt-get install -y gradle
 
-      - name: Compiler directement le projet
+      - name: Compiler le projet Android
         run: |
-          BUILD_FILE=$(find . -name "build.gradle.kts" -o -name "build.gradle" | head -n 1)
-          if [ -z "$BUILD_FILE" ]; then
-            echo "Erreur : Aucun fichier de configuration Gradle trouve dans le depot."
-            exit 1
+          if [ -d "ZenoAI" ]; then
+            cd ZenoAI
           fi
-          
-          PROJECT_DIR=$(dirname "$BUILD_FILE")
-          echo "Dossier du projet trouve : $PROJECT_DIR"
-          cd "$PROJECT_DIR"
-          
-          gradle assembleDebug
+
+          if [ ! -f "gradlew" ]; then
+            echo "Generation du wrapper Gradle..."
+            gradle wrapper
+          fi
+
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Sauvegarder l'artefact APK
         uses: actions/upload-artifact@v4
