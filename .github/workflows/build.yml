@@ -3,15 +3,13 @@ name: Build Android APK
 on:
   push:
     branches: [ "main", "master" ]
-    tags:
-      - 'v*'
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: Compiler et Publier l'APK
+    name: Compiler l'APK
     runs-on: ubuntu-latest
 
     steps:
@@ -27,38 +25,15 @@ jobs:
       - name: Configurer Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Donner les permissions d'execution a Gradlew
+      - name: Donner les permissions d execution a Gradlew
         run: chmod +x gradlew
-        working-directory: ./ZenoAI
 
       - name: Compiler l'APK Debug
         run: ./gradlew assembleDebug
-        working-directory: ./ZenoAI
 
-      - name: Compiler l'APK Release
-        run: ./gradlew assembleRelease || true
-        working-directory: ./ZenoAI
-
-      - name: Sauvegarder l'artefact Debug
+      - name: Sauvegarder l'artefact APK
         uses: actions/upload-artifact@v4
         with:
-          name: zeno-app-debug
-          path: ZenoAI/app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Sauvegarder l'artefact Release
-        uses: actions/upload-artifact@v4
-        with:
-          name: zeno-app-release
-          path: ZenoAI/app/build/outputs/apk/release/*.apk
-          if-no-files-found: ignore
-
-      - name: Creer une Release GitHub
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          files: |
-            ZenoAI/app/build/outputs/apk/release/*.apk
-            ZenoAI/app/build/outputs/apk/debug/app-debug.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: zeno-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           
