@@ -22,10 +22,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Installer Gradle
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gradle
+      - name: Configurer Gradle 8.9
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.9'
 
       - name: Compiler le projet Android
         run: |
@@ -35,7 +35,7 @@ jobs:
 
           if [ ! -f "gradlew" ]; then
             echo "Generation du wrapper Gradle..."
-            gradle wrapper
+            gradle wrapper --gradle-version 8.9
           fi
 
           chmod +x gradlew
