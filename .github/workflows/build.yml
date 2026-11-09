@@ -10,21 +10,16 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Trouver le projet (dossier ou zip)
+      - name: Extraire le zip et trouver le projet
         id: proj
         run: |
           best=$(python3 - <<'PY'
@@ -54,15 +49,17 @@ jobs:
             unzip -q "$best" -d _src
             search=_src
           else
+            echo "Aucun zip de projet : recherche dans le dépôt"
             search=.
           fi
           f=$(find "$search" -name settings.gradle.kts -not -path '*/build/*' | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
           if [ -z "$f" ]; then
-            echo "::error::Aucun settings.gradle.kts trouvé."
+            echo "Aucun settings.gradle.kts trouvé."
+            find . -not -path './.git/*' | head -50
             exit 1
           fi
-          echo "Projet : $(dirname "$f")"
           echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
+          echo "Projet : $(dirname "$f")"
 
       - name: Installer Java 17
         uses: actions/setup-java@v4
@@ -70,62 +67,65 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Installer Gradle 8.9 (avec cache)
+      - name: Installer Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Compiler le shell de jeu
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          set -o pipefail
-          gradle :gameshell:assembleRelease --no-daemon --console=plain 2>&1 | tee build.log
-          mkdir -p app/src/main/assets
-          cp gameshell/build/outputs/apk/release/*.apk app/src/main/assets/game-shell.apk
-
       - name: Compiler l'app (debug + release)
         working-directory: ${{ steps.proj.outputs.dir }}
         run: |
-          set -o pipefail
-          gradle :app:assembleDebug :app:assembleRelease --no-daemon --console=plain --stacktrace 2>&1 | tee -a build.log
-
-      - name: Résumé des erreurs
-        if: failure()
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          {
-            echo "## Erreurs de compilation"
-            echo '```'
-            grep -E '^e: ' build.log | head -30 || true
-            grep -A8 'What went wrong' build.log | head -20 || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^e: ' build.log | head -30 || true
-
-      - name: Renommer les APK
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          mkdir -p dist
-          cp app/build/outputs/apk/debug/*.apk   dist/ZenoAI-debug.apk
-          cp app/build/outputs/apk/release/*.apk dist/ZenoAI-release.apk
-          ls -lh dist
-
-      - name: Publier les APK (artefacts)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ZenoAI-apk
-          path: ${{ steps.proj.outputs.dir }}/dist/*.apk
-          if-no-files-found: error
+          : > build.log
+          show_errors() {
+            # On retire les lignes de pile Java ("at org.gradle...") qui noient le vrai message
+            grep -v -E '^\s+at |^\s*\.\.\. [0-9]+ more|^Caused by: java\.' build.log > clean.log || true
+            {
+              echo "## Erreurs de compilation"
+              echo '```'
+              grep -E '^e: ' clean.log | sed -E 's#file://.*/src/main/java/##' | head -40
+              grep -E -A12 'What went wrong' clean.log | head -40
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo
+            echo "=================== ERREURS DE COMPILATION ==================="
+            echo "--- lignes 'e:' (code Kotlin) ---"
+            grep -E '^e: ' clean.log | sed -E 's#file://.*/src/main/java/##' | head -40
+            echo "--- cause Gradle ---"
+            grep -E -A15 'What went wrong' clean.log | head -50
+            echo "--- fin du journal (sans les piles Java) ---"
+            tail -40 clean.log
+            echo "=============================================================="
+          }
+          run() {
+            echo ">>> gradle $*"
+            gradle "$@" --no-daemon --console=plain >> build.log 2>&1 || { show_errors; exit 1; }
+          }
+          run :gameshell:assembleRelease
+          mkdir -p app/src/main/assets
+          cp gameshell/build/outputs/apk/release/*.apk app/src/main/assets/game-shell.apk
+          run assembleDebug
+          run assembleRelease
+          echo "Compilation réussie"
 
       - name: Envoyer le journal en cas d'échec
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: ${{ steps.proj.outputs.dir }}/build.log
+          name: journal-de-build
+          path: |
+            ${{ steps.proj.outputs.dir }}/build.log
+            ${{ steps.proj.outputs.dir }}/clean.log
+
+      - name: Publier les APK (artefacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenoAI-apk
+          path: |
+            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+            ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
 
       - name: Créer une release GitHub (sur tag vX.Y)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.proj.outputs.dir }}/dist/ZenoAI-release.apk
+          files: ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/*.apk
