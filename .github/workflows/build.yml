@@ -49,7 +49,6 @@ jobs:
             unzip -q "$best" -d _src
             search=_src
           else
-            echo "Aucun zip de projet : recherche dans le dépôt"
             search=.
           fi
           f=$(find "$search" -name settings.gradle.kts -not -path '*/build/*' | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
@@ -59,7 +58,6 @@ jobs:
             exit 1
           fi
           echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
-          echo "Projet : $(dirname "$f")"
 
       - name: Installer Java 17
         uses: actions/setup-java@v4
@@ -72,49 +70,36 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Compiler l'app (debug + release)
+      - name: Compiler le shell de jeu
         working-directory: ${{ steps.proj.outputs.dir }}
         run: |
-          : > build.log
-          show_errors() {
-            # On retire les lignes de pile Java ("at org.gradle...") qui noient le vrai message
-            grep -v -E '^\s+at |^\s*\.\.\. [0-9]+ more|^Caused by: java\.' build.log > clean.log || true
-            {
-              echo "## Erreurs de compilation"
-              echo '```'
-              grep -E '^e: ' clean.log | sed -E 's#file://.*/src/main/java/##' | head -40
-              grep -E -A12 'What went wrong' clean.log | head -40
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo
-            echo "=================== ERREURS DE COMPILATION ==================="
-            echo "--- lignes 'e:' (code Kotlin) ---"
-            grep -E '^e: ' clean.log | sed -E 's#file://.*/src/main/java/##' | head -40
-            echo "--- cause Gradle ---"
-            grep -E -A15 'What went wrong' clean.log | head -50
-            echo "--- fin du journal (sans les piles Java) ---"
-            tail -40 clean.log
-            echo "=============================================================="
-          }
-          run() {
-            echo ">>> gradle $*"
-            gradle "$@" --no-daemon --console=plain >> build.log 2>&1 || { show_errors; exit 1; }
-          }
-          run :gameshell:assembleRelease
+          set -o pipefail
+          gradle :gameshell:assembleRelease --no-daemon --console=plain 2>&1 | tee build.log
           mkdir -p app/src/main/assets
           cp gameshell/build/outputs/apk/release/*.apk app/src/main/assets/game-shell.apk
-          run assembleDebug
-          run assembleRelease
-          echo "Compilation réussie"
 
-      - name: Envoyer le journal en cas d'échec
+      - name: Compiler l'APK debug
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --console=plain 2>&1 | tee -a build.log
+
+      - name: Afficher les erreurs de compilation
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: journal-de-build
-          path: |
-            ${{ steps.proj.outputs.dir }}/build.log
-            ${{ steps.proj.outputs.dir }}/clean.log
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          {
+            echo "## Erreurs de compilation"
+            echo '```'
+            grep -E '^e: ' build.log | head -30 || true
+            grep -A8 'What went wrong' build.log | head -20 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^e: ' build.log | head -30 || true
+
+      - name: Compiler l'APK release (signé avec la clé debug)
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Publier les APK (artefacts)
         uses: actions/upload-artifact@v4
