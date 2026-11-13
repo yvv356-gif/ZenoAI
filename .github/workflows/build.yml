@@ -1,159 +1,28 @@
-name: Build ZenoAI APK
-
-# Compilation uniquement, à la demande : onglet Actions → Build ZenoAI APK → Run workflow
-on:
-  workflow_dispatch:
-
-# Une seule compilation par branche : une nouvelle poussée annule la précédente
-concurrency:
-  group: build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read # lecture seule : le workflow ne publie rien
-
+name: Build ZenoAI
+on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # Le projet peut être : à la racine, dans un sous-dossier (ex. ZenoAI/), ou dans un .zip
-      - name: Trouver le projet
-        id: proj
-        run: |
-          set -e
-          f=$(find . -name settings.gradle.kts -not -path './.git/*' -not -path '*/build/*' -not -path './_src/*' \
-              | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
-          if [ -n "$f" ]; then
-            dir=$(dirname "$f")
-            echo "Projet trouvé dans : $dir"
-            echo "dir=$dir" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          best=$(python3 - <<'PY'
-          import glob, subprocess, zipfile
-          best = None
-          for z in glob.glob('**/*.zip', recursive=True):
-              try:
-                  zf = zipfile.ZipFile(z)
-              except Exception:
-                  continue
-              if not any(n.endswith('settings.gradle.kts') for n in zf.namelist()):
-                  continue
-              try:
-                  t = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct', '--', z]).strip() or 0)
-              except Exception:
-                  t = 0
-              newest = max((i.date_time for i in zf.infolist()), default=(0,))
-              key = (t, newest)
-              if best is None or key > best[0]:
-                  best = (key, z)
-          print(best[1] if best else '')
-          PY
-          )
-          if [ -z "$best" ]; then
-            echo "Aucun projet trouvé (ni settings.gradle.kts, ni .zip contenant le projet)."
-            exit 1
-          fi
-          echo "Zip utilisé : $best"
-          rm -rf _src && mkdir _src
-          unzip -q "$best" -d _src
-          f=$(find _src -name settings.gradle.kts -not -path '*/build/*' | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
-          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
-
-      - name: Installer Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Installer le SDK Android (plateforme 35)
-        run: |
-          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKM" ]; then SDKM=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -1); fi
-          yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
-
-      # Le projet n'a pas de gradlew : on installe Gradle 8.9 (compatible AGP 8.5.2) avec cache
-      - name: Installer Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-
-      # Le shell de jeu doit être compilé en premier : son APK est embarqué dans l'appli (export des jeux)
-      - name: Compiler le shell de jeu (export APK des jeux)
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          set -o pipefail
-          gradle :gameshell:assembleRelease --no-daemon --console=plain --stacktrace 2>&1 | tee build.log
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Installer CMake et NDK
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "cmake;3.22.1" "ndk;26.1.10909125" > /dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: 8.9 }
+      # 1) Modèle d'APK "jeu"
+      - run: gradle :gametemplate:assembleDebug --no-daemon
+      - run: |
           mkdir -p app/src/main/assets
-          cp gameshell/build/outputs/apk/release/*.apk app/src/main/assets/game-shell.apk
-
-      - name: Compiler l'APK debug
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          set -o pipefail
-          gradle :app:assembleDebug --no-daemon --console=plain --stacktrace 2>&1 | tee -a build.log
-
-      - name: Compiler l'APK release (signé avec la clé debug, installable)
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          set -o pipefail
-          gradle :app:assembleRelease --no-daemon --console=plain --stacktrace 2>&1 | tee -a build.log
-
-      # Noms lisibles : ZenoAI-<version>-<commit>-debug.apk / -release.apk
-      - name: Nommer les APK
-        id: apk
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          set -e
-          ver=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
-          sha=$(echo "$GITHUB_SHA" | cut -c1-7)
-          mkdir -p dist
-          for t in debug release; do
-            src=$(ls app/build/outputs/apk/$t/*.apk | head -1)
-            cp "$src" "dist/ZenoAI-${ver:-0}-${sha}-${t}.apk"
-          done
-          {
-            echo "## APK compilés"
-            echo "| Fichier | Taille |"
-            echo "|---|---|"
-            for f in dist/*.apk; do echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |"; done
-            echo
-            echo "Téléchargement : section **Artifacts** en bas de cette page."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # En cas d'échec : les erreurs apparaissent dans le résumé du job
-      - name: Afficher les erreurs de compilation
-        if: failure()
-        working-directory: ${{ steps.proj.outputs.dir }}
-        run: |
-          {
-            echo "## Erreurs de compilation"
-            echo '```'
-            grep -E '^e: |error:|FAILED|What went wrong' -A3 build.log | head -80 || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^e: ' build.log | head -40 || true
-
-      - name: Publier le journal de compilation
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: ${{ steps.proj.outputs.dir }}/build.log
-          if-no-files-found: ignore
-          retention-days: 3
-
-      - name: Publier les APK
-        uses: actions/upload-artifact@v4
+          cp gametemplate/build/outputs/apk/debug/gametemplate-debug.apk app/src/main/assets/game_template.apk
+          # 2) Clé de signature des APK de jeux
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/k.pem -out /tmp/c.pem -days 10000 -subj "/CN=ZenoAI"
+          openssl pkcs8 -topk8 -nocrypt -in /tmp/k.pem -outform DER -out app/src/main/assets/sign_key.pk8
+          openssl x509 -in /tmp/c.pem -outform DER -out app/src/main/assets/sign_cert.der
+      # 3) L'application
+      - run: gradle :app:assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
         with:
           name: ZenoAI-apk
-          path: ${{ steps.proj.outputs.dir }}/dist/*.apk
-          if-no-files-found: error
-          retention-days: 3 # effacé automatiquement après 3 jours
+          path: app/build/outputs/apk/debug/*.apk
