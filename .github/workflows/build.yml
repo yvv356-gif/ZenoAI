@@ -8,7 +8,6 @@ jobs:
 
       - name: Trouver et extraire le projet
         run: |
-          # Décompresse les zip du dépôt (ex. ZenoAI.zip)
           find . -maxdepth 3 -name '*.zip' -not -path './_zip/*' | while read z; do
             unzip -oq "$z" -d _zip
           done
@@ -40,9 +39,15 @@ jobs:
           openssl pkcs8 -topk8 -nocrypt -in /tmp/k.pem -outform DER -out app/src/main/assets/sign_key.pk8
           openssl x509 -in /tmp/c.pem -outform DER -out app/src/main/assets/sign_cert.der
 
-      - name: Compiler l'application
+      - name: Compiler l'application (avec images hors ligne, sinon sans)
         working-directory: ${{ env.PROJECT_DIR }}
-        run: gradle :app:assembleDebug --no-daemon
+        run: |
+          if gradle :app:assembleDebug -PwithSD=true --no-daemon; then
+            echo "✅ Build AVEC moteur d'images hors ligne"
+          else
+            echo "⚠️ Moteur d'images indisponible : build SANS images hors ligne"
+            gradle :app:assembleDebug --no-daemon
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
