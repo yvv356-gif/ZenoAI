@@ -11,6 +11,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ZenoAI
     steps:
       - uses: actions/checkout@v4
 
@@ -19,12 +22,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Pas de gradlew dans le projet : on installe Gradle directement
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+          build-root-directory: ZenoAI
 
-      # Le shell de jeu est embarqué dans l'app (assets/game-shell.apk)
       - name: Compiler le shell de jeu
         run: |
           gradle :gameshell:assembleRelease --no-daemon --console=plain
@@ -38,5 +40,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ZenoAI-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: ZenoAI/app/build/outputs/apk/release/*.apk
           retention-days: 14
